@@ -1,0 +1,10 @@
+{
+  "name": "ATW LevelHead",
+  "modId": "atw-levelhead",
+  "entrypoints": [
+    "com.atw.levelhead.ATWLevelHead"
+  ],
+  "hooks": [
+    "com.atw.levelhead.hook.ChatCommandCompatibilityHook"
+  ]
+}
