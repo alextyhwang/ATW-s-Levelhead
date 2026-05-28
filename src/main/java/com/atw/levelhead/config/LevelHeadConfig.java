@@ -13,7 +13,8 @@ public class LevelHeadConfig {
     private static final JsonParser PARSER = new JsonParser();
 
     private boolean backgroundEnabled = false;
-    private String displayMode = "level";
+    private String displayMode = "bedwars";
+    private String hypixelApiKey = "";
 
     public boolean isBackgroundEnabled() {
         return backgroundEnabled;
@@ -33,6 +34,14 @@ public class LevelHeadConfig {
 
     public boolean isBedwarsMode() {
         return "bedwars".equalsIgnoreCase(displayMode) || "bw".equalsIgnoreCase(displayMode);
+    }
+
+    public String getHypixelApiKey() {
+        return hypixelApiKey;
+    }
+
+    public void setHypixelApiKey(String hypixelApiKey) {
+        this.hypixelApiKey = hypixelApiKey == null ? "" : hypixelApiKey.trim();
     }
 
     public static LevelHeadConfig load() {
@@ -58,6 +67,9 @@ public class LevelHeadConfig {
             if (object.has("displayMode")) {
                 config.displayMode = object.get("displayMode").getAsString();
             }
+            if (object.has("hypixelApiKey")) {
+                config.hypixelApiKey = object.get("hypixelApiKey").getAsString();
+            }
         } catch (Exception exception) {
             ATWLevelHead.log("Failed to load config, using defaults: " + exception.getMessage());
         }
@@ -75,6 +87,7 @@ public class LevelHeadConfig {
         JsonObject object = new JsonObject();
         object.addProperty("backgroundEnabled", backgroundEnabled);
         object.addProperty("displayMode", displayMode);
+        object.addProperty("hypixelApiKey", hypixelApiKey);
         try (FileOutputStream outputStream = new FileOutputStream(file)) {
             outputStream.write(object.toString().getBytes(StandardCharsets.UTF_8));
         } catch (Exception exception) {

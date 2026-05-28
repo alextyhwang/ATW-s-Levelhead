@@ -51,6 +51,11 @@ public final class BedwarsStatFormatter {
         return fkdrColor(fkdr) + formatted;
     }
 
+    public static String formatThreat(double threat) {
+        double clamped = Math.max(0.0D, Math.min(10.0D, threat));
+        return threatColor(clamped) + FKDR_FORMAT.format(clamped);
+    }
+
     private static String starColor(int star) {
         if (star < 100) {
             return GRAY;
@@ -88,6 +93,25 @@ public final class BedwarsStatFormatter {
         } else if (fkdr < 50.0D) {
             return DARK_RED;
         } else if (fkdr < 100.0D) {
+            return LIGHT_PURPLE;
+        }
+        return DARK_PURPLE;
+    }
+
+    private static String threatColor(double threat) {
+        if (threat < 1.5D) {
+            return GRAY;
+        } else if (threat < 3.5D) {
+            return WHITE;
+        } else if (threat < 5.0D) {
+            return GOLD;
+        } else if (threat < 7.0D) {
+            return DARK_GREEN;
+        } else if (threat < 8.5D) {
+            return RED;
+        } else if (threat < 9.5D) {
+            return DARK_RED;
+        } else if (threat < 10.0D) {
             return LIGHT_PURPLE;
         }
         return DARK_PURPLE;

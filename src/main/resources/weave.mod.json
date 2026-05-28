@@ -5,6 +5,7 @@
     "com.atw.levelhead.ATWLevelHead"
   ],
   "hooks": [
-    "com.atw.levelhead.hook.ChatCommandCompatibilityHook"
+    "com.atw.levelhead.hook.ChatCommandCompatibilityHook",
+    "com.atw.levelhead.hook.TabListLevelTagHook"
   ]
 }

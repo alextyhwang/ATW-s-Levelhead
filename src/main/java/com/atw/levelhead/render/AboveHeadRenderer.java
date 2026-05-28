@@ -18,6 +18,7 @@ import org.lwjgl.opengl.GL11;
 public class AboveHeadRenderer {
     private static final int HEADER_COLOR = 0x55FFFF;
     private static final int FOOTER_COLOR = 0xFFFF55;
+    private static final int NICKED_COLOR = 0xFF5555;
 
     private final ATWLevelHead mod;
 
@@ -59,7 +60,7 @@ public class AboveHeadRenderer {
 
     private boolean shouldRender(EntityPlayer player) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.thePlayer == null || player == mc.thePlayer || mod.isSelf(player)) {
+        if (mc.thePlayer == null || player == mc.thePlayer || mod.isSelf(player) || mod.isHypixelNpc(player)) {
             return false;
         }
         if (player.isInvisible() || player.isInvisibleToPlayer(mc.thePlayer) || player.isSneaking()) {
@@ -145,6 +146,11 @@ public class AboveHeadRenderer {
     }
 
     private void drawText(FontRenderer fontRenderer, LevelTag tag, int x, int alpha, boolean shadow) {
+        if (tag.isNicked()) {
+            fontRenderer.drawString(tag.getText(), x, 0, withAlpha(NICKED_COLOR, alpha), shadow);
+            return;
+        }
+
         fontRenderer.drawString(tag.getHeader(), x, 0, withAlpha(HEADER_COLOR, alpha), shadow);
         fontRenderer.drawString(tag.getFooter(), x + fontRenderer.getStringWidth(tag.getHeader()), 0, withAlpha(FOOTER_COLOR, alpha), shadow);
     }

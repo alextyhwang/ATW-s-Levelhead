@@ -3,6 +3,8 @@ package com.atw.levelhead.data;
 import java.util.UUID;
 
 public class LevelTag {
+    private static final String NICKED_FOOTER = "&c&lNICKED";
+
     private final UUID owner;
     private final String header;
     private final String footer;
@@ -11,6 +13,10 @@ public class LevelTag {
         this.owner = owner;
         this.header = normalize(header);
         this.footer = normalize(footer);
+    }
+
+    public static LevelTag nicked(UUID owner) {
+        return new LevelTag(owner, "", NICKED_FOOTER);
     }
 
     public UUID getOwner() {
@@ -29,7 +35,15 @@ public class LevelTag {
         return header + footer;
     }
 
+    public boolean isNicked() {
+        return "NICKED".equalsIgnoreCase(stripFormatting(getText()));
+    }
+
     private static String normalize(String value) {
         return value == null ? "" : value.replace('&', '\u00a7');
+    }
+
+    private static String stripFormatting(String value) {
+        return value == null ? "" : value.replaceAll("\u00a7.", "");
     }
 }

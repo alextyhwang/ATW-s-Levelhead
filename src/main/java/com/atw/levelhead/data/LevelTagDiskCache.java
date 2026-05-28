@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 public class LevelTagDiskCache {
     private static final JsonParser PARSER = new JsonParser();
     private static final long LEVEL_TTL_MILLIS = TimeUnit.HOURS.toMillis(6);
-    private static final long BEDWARS_TTL_MILLIS = TimeUnit.MINUTES.toMillis(10);
+    private static final long BEDWARS_TTL_MILLIS = TimeUnit.DAYS.toMillis(1);
 
     private final ConcurrentHashMap<String, Entry> entries = new ConcurrentHashMap<>();
     private final File file;
@@ -37,6 +37,15 @@ public class LevelTagDiskCache {
     public LevelTag getFresh(String mode, UUID uuid) {
         Entry entry = entries.get(key(mode, uuid));
         if (entry == null || isExpired(mode, entry.updatedAtMillis)) {
+            return null;
+        }
+
+        return new LevelTag(uuid, entry.header, entry.footer);
+    }
+
+    public LevelTag getAny(String mode, UUID uuid) {
+        Entry entry = entries.get(key(mode, uuid));
+        if (entry == null) {
             return null;
         }
 
@@ -128,7 +137,8 @@ public class LevelTagDiskCache {
     }
 
     private boolean isExpired(String mode, long updatedAtMillis) {
-        long ttl = "bedwars".equalsIgnoreCase(mode) ? BEDWARS_TTL_MILLIS : LEVEL_TTL_MILLIS;
+        String normalizedMode = mode == null ? "level" : mode.toLowerCase(Locale.ROOT);
+        long ttl = normalizedMode.startsWith("bedwars") ? BEDWARS_TTL_MILLIS : LEVEL_TTL_MILLIS;
         return updatedAtMillis <= 0L || System.currentTimeMillis() - updatedAtMillis > ttl;
     }
 

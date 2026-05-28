@@ -126,6 +126,11 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
         for (JsonElement element : results) {
             JsonObject result = element.getAsJsonObject();
             UUID uuid = parseUuid(result.get("uuid").getAsString());
+            if (isUnknownNickResult(result)) {
+                tags.put(uuid, LevelTag.nicked(uuid));
+                continue;
+            }
+
             String header = result.has("headerString") ? result.get("headerString").getAsString() + ": " : "Level: ";
             String footer = result.has("footerString") && !sameString(result, "footerString", "value")
                     ? result.get("footerString").getAsString()
@@ -150,6 +155,25 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
 
     private static boolean sameString(JsonObject object, String left, String right) {
         return object.has(left) && object.has(right) && object.get(left).getAsString().equals(object.get(right).getAsString());
+    }
+
+    private static boolean isUnknownNickValue(String value) {
+        if (value == null) {
+            return false;
+        }
+
+        String stripped = value.replaceAll("\u00a7.", "").trim();
+        return stripped.length() >= 3 && stripped.matches("\\?+");
+    }
+
+    private static boolean isUnknownNickResult(JsonObject result) {
+        return getUnknownNickField(result, "headerString")
+                || getUnknownNickField(result, "footerString")
+                || getUnknownNickField(result, "value");
+    }
+
+    private static boolean getUnknownNickField(JsonObject result, String field) {
+        return result.has(field) && !result.get(field).isJsonNull() && isUnknownNickValue(result.get(field).getAsString());
     }
 
     private static UUID parseUuid(String uuid) {

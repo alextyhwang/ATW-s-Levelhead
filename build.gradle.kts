@@ -13,7 +13,10 @@ repositories {
 }
 
 dependencies {
-    compileOnly(files("../../java/agents/WeaveLoader.jar"))
+    val weaveLoaderJar = providers.gradleProperty("weaveLoaderJar")
+        .orElse(providers.environmentVariable("WEAVE_LOADER_JAR"))
+        .orElse("../../java/agents/WeaveLoader.jar")
+    compileOnly(files(weaveLoaderJar))
 }
 
 tasks.compileJava {
