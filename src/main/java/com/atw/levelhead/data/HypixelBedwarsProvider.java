@@ -24,7 +24,7 @@ public class HypixelBedwarsProvider implements LevelheadProvider {
     private static final long THROTTLE_RETRY_DELAY_MILLIS = TimeUnit.MINUTES.toMillis(5);
     private static final DecimalFormat RATIO_FORMAT = new DecimalFormat("0.00");
 
-    private final HttpJsonClient http = new HttpJsonClient("ATWLevelHead/0.1.0");
+    private final HttpJsonClient http = new HttpJsonClient("ATWLevelHead/0.2.0");
     private final JsonParser parser = new JsonParser();
     private final LevelHeadConfig config;
     private volatile String apiKey;
