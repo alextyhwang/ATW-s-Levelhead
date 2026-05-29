@@ -525,7 +525,7 @@ public class ATWLevelHead implements ModInitializer {
     }
 
     private boolean isBedwarsStartMessage(String normalizedMessage) {
-        return "BED WARS".equals(normalizedMessage)
+        return normalizedMessage.matches("BED WARS(?: [A-Z0-9' -]+)?")
                 || normalizedMessage.contains("PROTECT YOUR BED")
                 || normalizedMessage.contains("DESTROY THE ENEMY BEDS")
                 || normalizedMessage.contains("CROSS-TEAMING IS NOT ALLOWED");
