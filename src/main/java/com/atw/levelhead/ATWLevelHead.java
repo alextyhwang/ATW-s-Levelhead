@@ -49,6 +49,7 @@ import java.util.regex.Pattern;
 
 public class ATWLevelHead implements ModInitializer {
     public static final String PREFIX = EnumChatFormatting.AQUA + "[ATW LevelHead] " + EnumChatFormatting.RESET;
+    private static final String LOADED_GUARD_PROPERTY = "com.atw.levelhead.loaded";
     private static final Pattern HYPIXEL_NPC_NAME = Pattern.compile("[a-z][0-9]{2}n[0-9]{6}");
     private static final Pattern CHAT_SPEAKER = Pattern.compile("^.*?(?:\\[[^\\]]+\\]\\s*)*([A-Za-z0-9_]{3,16})\\s*(?::|»|>)\\s+.*$");
     private static final Pattern BEDWARS_JOIN_COUNT = Pattern.compile("^.+ has joined \\((\\d+)/(\\d+)\\)!$");
@@ -104,6 +105,12 @@ public class ATWLevelHead implements ModInitializer {
 
     @Override
     public void preInit() {
+        if (Boolean.parseBoolean(System.getProperty(LOADED_GUARD_PROPERTY, "false"))) {
+            log("Skipping duplicate ATW LevelHead load. Remove old ATWLevelHead jars from .weave/mods.");
+            return;
+        }
+        System.setProperty(LOADED_GUARD_PROPERTY, "true");
+
         instance = this;
         log("Loading ATW LevelHead for Weave.");
         CommandBus.register(new LevelHeadCommand(this));
