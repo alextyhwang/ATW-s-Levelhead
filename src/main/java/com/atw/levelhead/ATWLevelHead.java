@@ -665,7 +665,7 @@ public class ATWLevelHead implements ModInitializer {
     }
 
     private void authenticateIfNeeded() {
-        if (config.isBedwarsMode()) {
+        if ("bedwars".equals(displayMode())) {
             return;
         }
 
@@ -1260,7 +1260,7 @@ public class ATWLevelHead implements ModInitializer {
     }
 
     private boolean shouldBlockAutomaticBedwarsLookup() {
-        return hypixel && config.isBedwarsMode() && !bedwarsGameStarted;
+        return hypixel && "bedwars".equals(displayMode()) && !bedwarsGameStarted;
     }
 
     private String cacheMode() {
