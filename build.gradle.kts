@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.atw"
-version = "0.2.1"
+version = "0.2.2"
 
 minecraft.version("1.8.9")
 

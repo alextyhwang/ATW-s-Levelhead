@@ -163,7 +163,7 @@ From the repository root:
 The built jar is written to:
 
 ```text
-build/libs/ATWLevelHead-0.2.1.jar
+build/libs/ATWLevelHead-0.2.2.jar
 ```
 
 ## Install
@@ -171,7 +171,7 @@ build/libs/ATWLevelHead-0.2.1.jar
 Copy the jar into Weave's mods folder:
 
 ```powershell
-Copy-Item .\build\libs\ATWLevelHead-0.2.1.jar $env:USERPROFILE\.weave\mods\ATWLevelHead-0.2.1.jar -Force
+Copy-Item .\build\libs\ATWLevelHead-0.2.2.jar $env:USERPROFILE\.weave\mods\ATWLevelHead-0.2.2.jar -Force
 ```
 
 Restart Lunar Client after installing. Weave loads mods at game startup.

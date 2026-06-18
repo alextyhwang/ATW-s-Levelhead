@@ -21,7 +21,7 @@ public class HypixelBedwarsProvider implements LevelheadProvider {
     private static final long THROTTLE_RETRY_DELAY_MILLIS = TimeUnit.MINUTES.toMillis(5);
     private static final DecimalFormat RATIO_FORMAT = new DecimalFormat("0.00");
 
-    private final HttpJsonClient http = new HttpJsonClient("ATWLevelHead/0.2.1");
+    private final HttpJsonClient http = new HttpJsonClient("ATWLevelHead/0.2.2");
     private final JsonParser parser = new JsonParser();
     private final LevelHeadConfig config;
     private volatile String apiKey;
@@ -117,8 +117,9 @@ public class HypixelBedwarsProvider implements LevelheadProvider {
                     playerStats = fetchOneStatsByName(uuid, request.getValue());
                 }
                 if (playerStats == null) {
-                    tags.put(uuid, LevelTag.nicked(uuid));
-                    stats.put(uuid, BedwarsPlayerStats.nicked(uuid, fallbackName(request.getValue())));
+                    playerStats = BedwarsPlayerStats.nicked(uuid, fallbackName(request.getValue()));
+                    tags.put(uuid, playerStats.toLevelTag());
+                    stats.put(uuid, playerStats);
                 } else {
                     stats.put(uuid, playerStats);
                     tags.put(uuid, playerStats.toLevelTag());

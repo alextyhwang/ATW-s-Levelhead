@@ -67,6 +67,12 @@ public class BedwarsPlayerStats {
     }
 
     public LevelTag toLevelTag() {
+        if (nickedEstimate) {
+            String missingStars = padVisibleRight("\u00a7c--\u272b", 5);
+            String missingFkdr = padVisibleLeft("\u00a7c--", 6);
+            return LevelTag.bedwarsNicked(uuid, missingStars + "\u00a77| FKDR " + missingFkdr);
+        }
+
         String stars = BedwarsStatFormatter.formatStars(star);
         String lifetimeFkdr = BedwarsStatFormatter.formatFkdr(finalKills, finalDeaths);
         return new LevelTag(uuid, "", padVisibleRight(stars, 5)

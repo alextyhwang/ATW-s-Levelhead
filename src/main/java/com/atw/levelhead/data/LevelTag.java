@@ -8,15 +8,25 @@ public class LevelTag {
     private final UUID owner;
     private final String header;
     private final String footer;
+    private final boolean nicked;
 
     public LevelTag(UUID owner, String header, String footer) {
+        this(owner, header, footer, false);
+    }
+
+    private LevelTag(UUID owner, String header, String footer, boolean nicked) {
         this.owner = owner;
         this.header = normalize(header);
         this.footer = normalize(footer);
+        this.nicked = nicked;
     }
 
     public static LevelTag nicked(UUID owner) {
-        return new LevelTag(owner, "", NICKED_FOOTER);
+        return new LevelTag(owner, "", NICKED_FOOTER, true);
+    }
+
+    public static LevelTag bedwarsNicked(UUID owner, String footer) {
+        return new LevelTag(owner, "", footer, true);
     }
 
     public UUID getOwner() {
@@ -36,7 +46,7 @@ public class LevelTag {
     }
 
     public boolean isNicked() {
-        return "NICKED".equalsIgnoreCase(stripFormatting(getText()));
+        return nicked || "NICKED".equalsIgnoreCase(stripFormatting(getText()));
     }
 
     private static String normalize(String value) {
