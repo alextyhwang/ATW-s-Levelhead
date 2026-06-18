@@ -36,10 +36,19 @@ Hypixel's team colors and spacing.
 
 ### Above-Head Tag
 
-The above-head renderer shows the same BedWars context in world, including the
-player's star and FKDR.
+The above-head renderer shows BedWars context in game, and keeps Sk1er-style
+LevelHead text visible in non-BedWars lobbies.
 
-![ATW LevelHead above-head BedWars tag](docs/images/above-head-tag.png)
+<table>
+  <tr>
+    <td align="center"><strong>BedWars stats tag</strong></td>
+    <td align="center"><strong>Lobby LevelHead tag</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/above-head-tag.png" alt="ATW LevelHead above-head BedWars tag" width="260"></td>
+    <td><img src="docs/images/non-bedwars-levelhead.png" alt="ATW LevelHead non-BedWars lobby level tag" width="260"></td>
+  </tr>
+</table>
 
 ## How It Works
 
