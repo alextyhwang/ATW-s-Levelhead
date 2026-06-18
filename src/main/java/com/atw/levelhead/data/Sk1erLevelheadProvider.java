@@ -12,10 +12,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 public class Sk1erLevelheadProvider implements LevelheadProvider {
     private static final String MOD_ID = "level_head";
     private static final String LEVELHEAD_VERSION = "8.2.3";
+    private static final long RATE_LIMIT_BACKOFF_MILLIS = TimeUnit.MINUTES.toMillis(1);
 
     private final HttpJsonClient http = new HttpJsonClient("Mozilla/4.76 (SK1ER LEVEL HEAD V" + LEVELHEAD_VERSION + ")");
     private final JsonParser parser = new JsonParser();
@@ -24,6 +26,7 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
     private volatile String hash = "";
     private volatile String accessKey = "";
     private volatile String status = "not-authenticated";
+    private volatile long throttledUntilMillis;
 
     public boolean isAuthenticated() {
         return authenticated;
@@ -31,7 +34,7 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
 
     @Override
     public boolean isReady() {
-        return authenticated;
+        return authenticated && !isThrottled();
     }
 
     @Override
@@ -45,6 +48,7 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
         hash = "";
         accessKey = "";
         status = "not-authenticated";
+        throttledUntilMillis = 0L;
     }
 
     public void fail(String message) {
@@ -91,7 +95,7 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
     @Override
     public Map<UUID, LevelTag> fetch(List<UUID> uuids) throws Exception {
         Map<UUID, LevelTag> tags = new HashMap<>();
-        if (!authenticated || uuids.isEmpty()) {
+        if (!authenticated || uuids.isEmpty() || isThrottled()) {
             return tags;
         }
 
@@ -114,6 +118,13 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
                 request.toString()
         ));
         if (!response.has("success") || !response.get("success").getAsBoolean()) {
+            if (isRateLimitResponse(response)) {
+                throttledUntilMillis = System.currentTimeMillis() + RATE_LIMIT_BACKOFF_MILLIS;
+                status = "rate-limited:" + retryDelayMillis() / 1000L + "s";
+                ATWLevelHead.log("Sk1er Levelhead rate limited; retrying queued players in "
+                        + Math.max(1L, retryDelayMillis() / 1000L) + "s.");
+                return tags;
+            }
             fail("Fetch failed: " + response);
             return tags;
         }
@@ -139,6 +150,14 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
         }
         status = "ok";
         return tags;
+    }
+
+    public boolean isThrottled() {
+        return throttledUntilMillis > System.currentTimeMillis();
+    }
+
+    public long retryDelayMillis() {
+        return Math.max(0L, throttledUntilMillis - System.currentTimeMillis());
     }
 
     private int joinServer(String token, String uuid, String serverHash) throws Exception {
@@ -174,6 +193,13 @@ public class Sk1erLevelheadProvider implements LevelheadProvider {
 
     private static boolean getUnknownNickField(JsonObject result, String field) {
         return result.has(field) && !result.get(field).isJsonNull() && isUnknownNickValue(result.get(field).getAsString());
+    }
+
+    private static boolean isRateLimitResponse(JsonObject response) {
+        if (response == null || !response.has("cause") || response.get("cause").isJsonNull()) {
+            return false;
+        }
+        return response.get("cause").getAsString().toLowerCase().contains("too many requests");
     }
 
     private static UUID parseUuid(String uuid) {

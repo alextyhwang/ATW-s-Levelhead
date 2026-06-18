@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.atw"
-version = "0.2.0"
+version = "0.2.1"
 
 minecraft.version("1.8.9")
 
@@ -25,4 +25,5 @@ tasks.compileJava {
 
 tasks.jar {
     archiveBaseName.set("ATWLevelHead")
+    exclude("atw-levelhead-local.properties")
 }

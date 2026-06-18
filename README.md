@@ -25,6 +25,22 @@ newer Weave ecosystem.
 - Disk cache for recent stats to reduce repeated API calls.
 - Command packet compatibility for Lunar auto-text hotkeys.
 
+## Screenshots
+
+### BedWars Tab List
+
+BedWars mode adds star and FKDR context directly in tab while preserving
+Hypixel's team colors and spacing.
+
+![ATW LevelHead BedWars tab list](docs/images/bedwars-tab.png)
+
+### Above-Head Tag
+
+The above-head renderer shows the same BedWars context in world, including the
+player's star and FKDR.
+
+![ATW LevelHead above-head BedWars tag](docs/images/above-head-tag.png)
+
 ## How It Works
 
 In BedWars mode, ATW's LevelHead waits for Hypixel's real game-start messages
@@ -108,7 +124,7 @@ Use `/atwlh clearcache` to clear in-memory and disk caches.
 - Lunar Client Minecraft 1.8.9.
 - Weave Loader v0.2.6.
 - Java 8-compatible bytecode.
-- A Hypixel API key for BedWars stats.
+- A user-provided Hypixel API key for BedWars stats.
 
 By default, the Gradle build expects the old Weave Loader jar at:
 
@@ -136,7 +152,7 @@ From the repository root:
 The built jar is written to:
 
 ```text
-build/libs/ATWLevelHead-0.2.0.jar
+build/libs/ATWLevelHead-0.2.1.jar
 ```
 
 ## Install
@@ -144,20 +160,24 @@ build/libs/ATWLevelHead-0.2.0.jar
 Copy the jar into Weave's mods folder:
 
 ```powershell
-Copy-Item .\build\libs\ATWLevelHead-0.2.0.jar $env:USERPROFILE\.weave\mods\ATWLevelHead-0.2.0.jar -Force
+Copy-Item .\build\libs\ATWLevelHead-0.2.1.jar $env:USERPROFILE\.weave\mods\ATWLevelHead-0.2.1.jar -Force
 ```
 
 Restart Lunar Client after installing. Weave loads mods at game startup.
 
 ## Privacy And API Keys
 
-Do not commit private Hypixel API keys. Use:
+Public release jars do not include a Hypixel API key. Every user must provide
+their own key for BedWars star/FKDR lookups. Use:
 
 ```text
 /atwlh api add <hypixel-api-key>
+/atwlh api test
 ```
 
 The mod stores the key locally in `%USERPROFILE%\.weave\atw-levelhead.json`.
+You may also provide a key at startup with `ATW_LEVELHEAD_HYPIXEL_API_KEY` or
+`-Datw.levelhead.hypixelApiKey=...`.
 
 ## Compatibility Notes
 

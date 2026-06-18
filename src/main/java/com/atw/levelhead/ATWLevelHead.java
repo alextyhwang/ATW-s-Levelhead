@@ -56,9 +56,13 @@ public class ATWLevelHead implements ModInitializer {
     private static final Pattern PLAYER_NAME_TOKEN = Pattern.compile("[A-Za-z0-9_]{3,16}");
     private static final int LEVEL_FETCH_BATCH_SIZE = 80;
     private static final long LEVEL_REQUEST_COOLDOWN_MILLIS = TimeUnit.SECONDS.toMillis(30);
-    private static final long LEVEL_DRAIN_INTERVAL_MILLIS = TimeUnit.SECONDS.toMillis(1);
+    private static final long LEVEL_DRAIN_INTERVAL_MILLIS = TimeUnit.SECONDS.toMillis(3);
+    private static final long SK1ER_AUTH_RETRY_MILLIS = TimeUnit.SECONDS.toMillis(15);
     private static final long RECENT_CHAT_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(2);
     private static final long LOBBY_CHAT_STATS_COOLDOWN_MILLIS = TimeUnit.MINUTES.toMillis(10);
+    private static final long BEDWARS_OVERVIEW_RETRY_MILLIS = 1500L;
+    private static final int BEDWARS_ROSTER_STABLE_SCANS = 3;
+    private static final int BEDWARS_OVERVIEW_MAX_ATTEMPTS = 20;
 
     private static ATWLevelHead instance;
 
@@ -90,13 +94,20 @@ public class ATWLevelHead implements ModInitializer {
 
     private volatile boolean hypixel;
     private volatile boolean authAttempted;
+    private volatile long nextSk1erAuthAttemptAt;
     private volatile boolean hypixelApiValidationStarted;
     private volatile boolean hypixelApiWarningShown;
     private volatile boolean bedwarsGameStarted;
     private volatile boolean bedwarsOverviewSent;
+    private volatile long bedwarsOverviewRetryGeneration = -1L;
     private volatile int bedwarsOverviewAttempts;
     private volatile int bedwarsExpectedPlayers;
+    private volatile int bedwarsLastParticipantCount;
+    private volatile int bedwarsRosterStableScans;
+    private volatile long bedwarsLastRosterScanMillis;
+    private volatile long bedwarsGameGeneration;
     private volatile long nextDrainAt;
+    private volatile long nextLevelNetworkFetchAt;
     private volatile String networkFetchStatus = "idle";
 
     public static ATWLevelHead getInstance() {
@@ -187,7 +198,7 @@ public class ATWLevelHead implements ModInitializer {
     }
 
     public boolean shouldShowTabTags() {
-        return isBedwarsStatsActive();
+        return hypixel;
     }
 
     public String networkFetchStatus() {
@@ -266,6 +277,7 @@ public class ATWLevelHead implements ModInitializer {
         clearSessionCache();
         activeProvider().reset();
         authAttempted = false;
+        nextSk1erAuthAttemptAt = 0L;
         detectCurrentServer();
         authenticateIfNeeded();
         queueWorldPlayersIfAutomaticLookupsAllowed();
@@ -278,6 +290,7 @@ public class ATWLevelHead implements ModInitializer {
     }
 
     public void clearSessionCache() {
+        bedwarsGameGeneration++;
         cache.clear();
         queued.clear();
         pending.clear();
@@ -288,10 +301,13 @@ public class ATWLevelHead implements ModInitializer {
         bedwarsGamePlayers.clear();
         bedwarsStats.clear();
         nextDrainAt = 0L;
+        nextLevelNetworkFetchAt = 0L;
         bedwarsGameStarted = false;
         bedwarsOverviewSent = false;
+        bedwarsOverviewRetryGeneration = -1L;
         bedwarsOverviewAttempts = 0;
         bedwarsExpectedPlayers = 0;
+        resetBedwarsRosterStability();
     }
 
     public void queuePlayer(EntityPlayer player) {
@@ -299,7 +315,11 @@ public class ATWLevelHead implements ModInitializer {
             return;
         }
 
-        queueUuid(player.getUniqueID(), player.getDisplayName() == null ? player.getName() : player.getDisplayName().getFormattedText());
+        String visibleName = player.getDisplayName() == null ? player.getName() : player.getDisplayName().getFormattedText();
+        if (isBedwarsStatsActive()) {
+            rememberBedwarsGamePlayer(player);
+        }
+        queueUuid(player.getUniqueID(), visibleName);
     }
 
     public void queuePlayer(UUID uuid) {
@@ -321,8 +341,13 @@ public class ATWLevelHead implements ModInitializer {
             networkFetchStatus = "bedwars-waiting";
             return;
         }
+        if (isBedwarsStatsActive() && !isKnownBedwarsParticipant(uuid, visibleName)) {
+            return;
+        }
 
-        if (cache.containsKey(cacheKey(mode, uuid))) {
+        LevelTag sessionTag = cache.get(cacheKey(mode, uuid));
+        if (sessionTag != null) {
+            rememberBedwarsStatsFromTag(mode, uuid, sessionTag);
             return;
         }
 
@@ -516,11 +541,14 @@ public class ATWLevelHead implements ModInitializer {
         String clean = message.trim();
         String normalized = clean.toUpperCase(Locale.ROOT).replaceAll("\\s+", " ");
         if (normalized.matches("THE GAME STARTS IN \\d+ SECONDS?!")) {
+            bedwarsGameGeneration++;
             bedwarsGameStarted = false;
             bedwarsOverviewSent = false;
+            bedwarsOverviewRetryGeneration = -1L;
             bedwarsOverviewAttempts = 0;
             bedwarsGamePlayers.clear();
             bedwarsStats.clear();
+            resetBedwarsRosterStability();
             clearFetchQueue();
             networkFetchStatus = "bedwars-waiting";
             return;
@@ -544,17 +572,20 @@ public class ATWLevelHead implements ModInitializer {
         }
 
         bedwarsGameStarted = true;
+        bedwarsGameGeneration++;
         bedwarsOverviewSent = false;
+        bedwarsOverviewRetryGeneration = -1L;
         bedwarsOverviewAttempts = 0;
         bedwarsGamePlayers.clear();
         bedwarsStats.clear();
+        resetBedwarsRosterStability();
         clearFetchQueue();
         networkFetchStatus = "bedwars-starting";
         int queuedPlayers = queueTabPlayers();
-        queueWorldPlayers();
         log("Detected BedWars game start; queued " + queuedPlayers + " tab player" + (queuedPlayers == 1 ? "" : "s") + " for BedWars stats.");
         nextDrainAt = 0L;
         drainQueueSoon();
+        scheduleBedwarsOverviewRetry(bedwarsGameGeneration);
     }
 
     private void detectCurrentServer() {
@@ -622,11 +653,28 @@ public class ATWLevelHead implements ModInitializer {
                 continue;
             }
 
-            bedwarsGamePlayers.merge(info.getGameProfile().getId(), BedwarsGamePlayer.from(info), BedwarsGamePlayer::preferKnownTeam);
+            BedwarsGamePlayer player = BedwarsGamePlayer.from(info);
+            bedwarsGamePlayers.merge(info.getGameProfile().getId(), player, BedwarsGamePlayer::preferKnownTeam);
+            if (player.isUnknownTeam()) {
+                continue;
+            }
             queueUuid(info.getGameProfile().getId(), displayNameFor(info));
             queuedPlayers++;
         }
         return queuedPlayers;
+    }
+
+    private boolean isKnownBedwarsParticipant(UUID uuid, String visibleName) {
+        BedwarsGamePlayer player = bedwarsGamePlayers.get(uuid);
+        if (player == null || player.isUnknownTeam()) {
+            String name = extractPlayerName(visibleName, null);
+            if (name != null) {
+                BedwarsGamePlayer visiblePlayer = BedwarsGamePlayer.from(name, visibleName);
+                bedwarsGamePlayers.merge(uuid, visiblePlayer, BedwarsGamePlayer::preferKnownTeam);
+                player = bedwarsGamePlayers.get(uuid);
+            }
+        }
+        return player != null && !player.isUnknownTeam();
     }
 
     private boolean rememberVisibleName(UUID uuid, String visibleName, String fallbackName) {
@@ -665,25 +713,33 @@ public class ATWLevelHead implements ModInitializer {
     }
 
     private void authenticateIfNeeded() {
-        if ("bedwars".equals(displayMode())) {
+        if (activeProvider() != sk1erProvider) {
             return;
         }
 
-        if (authAttempted || sk1erProvider.isAuthenticated()) {
+        long now = System.currentTimeMillis();
+        if (authAttempted || sk1erProvider.isAuthenticated() || now < nextSk1erAuthAttemptAt) {
             return;
         }
 
         authAttempted = true;
+        nextSk1erAuthAttemptAt = now + SK1ER_AUTH_RETRY_MILLIS;
         executor.execute(() -> {
             long startedAt = System.currentTimeMillis();
             try {
                 sk1erProvider.authenticate();
-                log("Sk1er auth completed in " + (System.currentTimeMillis() - startedAt) + "ms.");
-                drainQueueSoon();
+                if (sk1erProvider.isAuthenticated()) {
+                    log("Sk1er auth completed in " + (System.currentTimeMillis() - startedAt) + "ms.");
+                    drainQueueSoon();
+                } else {
+                    authAttempted = false;
+                    scheduleDrainAfter(SK1ER_AUTH_RETRY_MILLIS);
+                }
             } catch (Exception exception) {
                 sk1erProvider.fail("Auth exception: " + exception.getClass().getSimpleName() + ": " + exception.getMessage());
+                authAttempted = false;
                 exception.printStackTrace();
-                scheduleDrainAfter(TimeUnit.SECONDS.toMillis(2));
+                scheduleDrainAfter(SK1ER_AUTH_RETRY_MILLIS);
             }
         });
     }
@@ -725,10 +781,21 @@ public class ATWLevelHead implements ModInitializer {
 
         authenticateIfNeeded();
         String mode = cacheMode();
+        long fetchGeneration = bedwarsGameGeneration;
         LevelheadProvider provider = activeProvider();
         if (!provider.isReady()) {
-            networkFetchStatus = "provider-not-ready";
-            scheduleDrainAfter(TimeUnit.SECONDS.toMillis(2));
+            if (provider == sk1erProvider && sk1erProvider.isThrottled()) {
+                long retryDelay = Math.max(TimeUnit.SECONDS.toMillis(1), sk1erProvider.retryDelayMillis());
+                networkFetchStatus = "sk1er-rate-limited:" + Math.max(1L, retryDelay / 1000L) + "s";
+                scheduleDrainAfter(retryDelay);
+            } else {
+                networkFetchStatus = "provider-not-ready";
+                scheduleDrainAfter(TimeUnit.SECONDS.toMillis(2));
+            }
+            return;
+        }
+        if (provider == sk1erProvider && System.currentTimeMillis() < nextLevelNetworkFetchAt) {
+            scheduleDrainAfter(Math.max(1L, nextLevelNetworkFetchAt - System.currentTimeMillis()));
             return;
         }
 
@@ -738,6 +805,11 @@ public class ATWLevelHead implements ModInitializer {
         while (batch.size() < fetchBatchSize() && (uuid = pending.poll()) != null) {
             batch.add(uuid);
             queued.remove(uuid);
+            if (mode.startsWith("bedwars")
+                    && (fetchGeneration != bedwarsGameGeneration || !bedwarsGameStarted)) {
+                log("Discarded stale BedWars cache batch from an earlier game.");
+                return;
+            }
             LevelTag cachedTag = getCachedDiskTag(mode, uuid, false);
             if (cachedTag != null) {
                 cache.put(cacheKey(mode, uuid), cachedTag);
@@ -767,6 +839,11 @@ public class ATWLevelHead implements ModInitializer {
             java.util.Map<UUID, LevelTag> fetched;
             if (mode.startsWith("bedwars") && provider == bedwarsProvider) {
                 BedwarsFetchResult result = bedwarsProvider.fetchBedwars(fetchNames(fetchBatch));
+                if (fetchGeneration != bedwarsGameGeneration || !bedwarsGameStarted) {
+                    log("Discarded stale BedWars batch from an earlier game.");
+                    scheduleNextDrainIfNeeded();
+                    return;
+                }
                 fetched = result.getTags();
                 int realStats = 0;
                 for (java.util.Map.Entry<UUID, BedwarsPlayerStats> entry : result.getStats().entrySet()) {
@@ -779,10 +856,18 @@ public class ATWLevelHead implements ModInitializer {
                         + ", nickedEstimate=" + (result.getStats().size() - realStats)
                         + ", requested=" + fetchBatch.size() + ".");
             } else {
+                nextLevelNetworkFetchAt = System.currentTimeMillis() + LEVEL_DRAIN_INTERVAL_MILLIS;
                 fetched = provider.fetch(fetchBatch);
+                if (provider == sk1erProvider && sk1erProvider.isThrottled()) {
+                    requeue(fetchBatch);
+                    long retryDelay = Math.max(TimeUnit.SECONDS.toMillis(1), sk1erProvider.retryDelayMillis());
+                    networkFetchStatus = "sk1er-rate-limited:" + Math.max(1L, retryDelay / 1000L) + "s";
+                    scheduleDrainAfter(retryDelay);
+                    return;
+                }
             }
             for (java.util.Map.Entry<UUID, LevelTag> entry : fetched.entrySet()) {
-                if (!isUncacheableBedwarsTag(mode, entry.getValue())) {
+                if (entry.getValue() != null) {
                     cache.put(cacheKey(mode, entry.getKey()), entry.getValue());
                 }
             }
@@ -799,6 +884,15 @@ public class ATWLevelHead implements ModInitializer {
         }
 
         scheduleNextDrainIfNeeded();
+    }
+
+    private void requeue(List<UUID> uuids) {
+        for (UUID uuid : uuids) {
+            lastRequested.remove(uuid);
+            if (queued.putIfAbsent(uuid, Boolean.TRUE) == null) {
+                pending.add(uuid);
+            }
+        }
     }
 
     private void scheduleNextDrainIfNeeded() {
@@ -833,10 +927,6 @@ public class ATWLevelHead implements ModInitializer {
             }
         }
         return names;
-    }
-
-    private boolean isUncacheableBedwarsTag(String mode, LevelTag tag) {
-        return mode != null && mode.startsWith("bedwars") && tag != null && tag.isNicked();
     }
 
     private LevelTag getCachedDiskTag(UUID uuid, boolean allowStale) {
@@ -909,7 +999,11 @@ public class ATWLevelHead implements ModInitializer {
     }
 
     private void maybeSendBedwarsOverview() {
-        if (!bedwarsGameStarted || bedwarsOverviewSent || !pending.isEmpty()) {
+        maybeSendBedwarsOverview(bedwarsGameGeneration);
+    }
+
+    private void maybeSendBedwarsOverview(long generation) {
+        if (!bedwarsGameStarted || bedwarsOverviewSent || generation != bedwarsGameGeneration) {
             return;
         }
 
@@ -919,21 +1013,34 @@ public class ATWLevelHead implements ModInitializer {
         }
 
         mc.addScheduledTask(() -> {
-            if (bedwarsOverviewSent) {
+            if (!bedwarsGameStarted || bedwarsOverviewSent || generation != bedwarsGameGeneration) {
                 return;
             }
 
+            queueTabPlayers();
             refreshBedwarsGamePlayers();
-            int realStats = realStatsCount();
-            int desiredRealStats = bedwarsExpectedPlayers > 0 ? Math.min(3, bedwarsExpectedPlayers) : 3;
-            if ((realStats < desiredRealStats || knownTeamCount() < 2) && bedwarsOverviewAttempts < 12) {
+            updateBedwarsRosterStability();
+
+            int participants = participantCount();
+            int participantStats = participantStatsCount();
+            boolean rosterComplete = bedwarsExpectedPlayers > 0
+                    ? participants >= bedwarsExpectedPlayers
+                    : bedwarsRosterStableScans >= BEDWARS_ROSTER_STABLE_SCANS;
+            boolean statsComplete = participants > 0 && participantStats >= participants;
+            if ((!pending.isEmpty() || !rosterComplete || !statsComplete)
+                    && bedwarsOverviewAttempts < BEDWARS_OVERVIEW_MAX_ATTEMPTS) {
                 bedwarsOverviewAttempts++;
-                scheduler.schedule(() -> executor.execute(this::maybeSendBedwarsOverview), 1500L, TimeUnit.MILLISECONDS);
+                drainQueueSoon();
+                scheduleBedwarsOverviewRetry(generation);
                 return;
             }
-            if (realStats == 0) {
-                log("Skipping BedWars threat overview because every fetched player still looks nicked/obfuscated.");
+            if (participantStats == 0) {
+                log("Skipping BedWars threat overview because no current-game player stats were available.");
                 return;
+            }
+            if (!rosterComplete || !statsComplete) {
+                log("BedWars overview timed out with roster=" + participants + "/" + bedwarsExpectedPlayers
+                        + ", stats=" + participantStats + "/" + participants + ".");
             }
 
             List<String> lines = buildBedwarsOverviewLines();
@@ -948,27 +1055,41 @@ public class ATWLevelHead implements ModInitializer {
         });
     }
 
+    private void scheduleBedwarsOverviewRetry(long generation) {
+        if (!bedwarsGameStarted || bedwarsOverviewSent || bedwarsOverviewRetryGeneration == generation
+                || generation != bedwarsGameGeneration) {
+            return;
+        }
+
+        bedwarsOverviewRetryGeneration = generation;
+        scheduler.schedule(() -> {
+            if (bedwarsOverviewRetryGeneration == generation) {
+                bedwarsOverviewRetryGeneration = -1L;
+            }
+            executor.execute(() -> maybeSendBedwarsOverview(generation));
+        }, BEDWARS_OVERVIEW_RETRY_MILLIS, TimeUnit.MILLISECONDS);
+    }
+
     private List<String> buildBedwarsOverviewLines() {
         if (bedwarsStats.isEmpty()) {
             return java.util.Collections.emptyList();
         }
 
         Map<String, TeamThreat> teams = new HashMap<>();
+        int includedPlayers = 0;
         for (BedwarsPlayerStats stats : bedwarsStats.values()) {
             BedwarsGamePlayer player = bedwarsGamePlayers.get(stats.getUuid());
-            if (stats.isNickedEstimate() && (player == null || player.isUnknownTeam())) {
+            if (player == null || player.isUnknownTeam()) {
                 continue;
             }
-            String key = player == null || player.isUnknownTeam() ? "unknown:" + stats.getUuid() : player.teamKey;
+            String key = player.teamKey;
             TeamThreat team = teams.get(key);
             if (team == null) {
-                boolean unknownTeam = player == null || player.isUnknownTeam();
-                String fallbackName = stats.getName() == null ? "Unknown" : stats.getName();
-                team = new TeamThreat(unknownTeam ? fallbackName : player.teamName,
-                        player == null ? EnumChatFormatting.WHITE : player.teamColor);
+                team = new TeamThreat(player.teamName, player.teamColor);
                 teams.put(key, team);
             }
             team.add(stats);
+            includedPlayers++;
         }
 
         List<TeamThreat> ranked = new ArrayList<>(teams.values());
@@ -979,9 +1100,9 @@ public class ATWLevelHead implements ModInitializer {
         }
 
         List<String> lines = new ArrayList<>();
-        int totalPlayers = bedwarsExpectedPlayers > 0 ? bedwarsExpectedPlayers : Math.max(bedwarsStats.size(), participantCount());
+        int totalPlayers = bedwarsExpectedPlayers > 0 ? bedwarsExpectedPlayers : participantCount();
         lines.add(EnumChatFormatting.AQUA + "ATW LevelHead Overview"
-                + EnumChatFormatting.GRAY + " (" + bedwarsStats.size() + "/" + totalPlayers + " players)");
+                + EnumChatFormatting.GRAY + " (" + includedPlayers + "/" + totalPlayers + " players)");
         for (int index = 0; index < limit; index++) {
             TeamThreat team = ranked.get(index);
             BedwarsPlayerStats top = team.topPlayer;
@@ -1042,17 +1163,6 @@ public class ATWLevelHead implements ModInitializer {
         bedwarsGamePlayers.merge(player.getUniqueID(), livePlayer, BedwarsGamePlayer::preferKnownTeam);
     }
 
-    private int knownTeamCount() {
-        java.util.HashSet<String> knownTeams = new java.util.HashSet<>();
-        for (BedwarsPlayerStats stats : bedwarsStats.values()) {
-            BedwarsGamePlayer player = bedwarsGamePlayers.get(stats.getUuid());
-            if (player != null && !player.isUnknownTeam()) {
-                knownTeams.add(player.teamKey);
-            }
-        }
-        return knownTeams.size();
-    }
-
     private int participantCount() {
         int count = 0;
         for (BedwarsGamePlayer player : bedwarsGamePlayers.values()) {
@@ -1060,17 +1170,40 @@ public class ATWLevelHead implements ModInitializer {
                 count++;
             }
         }
-        return count == 0 ? bedwarsGamePlayers.size() : count;
+        return count;
     }
 
-    private int realStatsCount() {
+    private int participantStatsCount() {
         int count = 0;
         for (BedwarsPlayerStats stats : bedwarsStats.values()) {
-            if (!stats.isNickedEstimate()) {
+            BedwarsGamePlayer player = bedwarsGamePlayers.get(stats.getUuid());
+            if (player != null && !player.isUnknownTeam()) {
                 count++;
             }
         }
         return count;
+    }
+
+    private void resetBedwarsRosterStability() {
+        bedwarsLastParticipantCount = -1;
+        bedwarsRosterStableScans = 0;
+        bedwarsLastRosterScanMillis = 0L;
+    }
+
+    private void updateBedwarsRosterStability() {
+        long now = System.currentTimeMillis();
+        if (now - bedwarsLastRosterScanMillis < 1000L) {
+            return;
+        }
+
+        int participants = participantCount();
+        if (participants > 0 && participants == bedwarsLastParticipantCount) {
+            bedwarsRosterStableScans++;
+        } else {
+            bedwarsLastParticipantCount = participants;
+            bedwarsRosterStableScans = participants > 0 ? 1 : 0;
+        }
+        bedwarsLastRosterScanMillis = now;
     }
 
     private void sendChatOnClientThread(String message) {
@@ -1260,7 +1393,7 @@ public class ATWLevelHead implements ModInitializer {
     }
 
     private boolean shouldBlockAutomaticBedwarsLookup() {
-        return hypixel && "bedwars".equals(displayMode()) && !bedwarsGameStarted;
+        return isBedwarsWaitingForStart();
     }
 
     private String cacheMode() {
@@ -1344,22 +1477,21 @@ public class ATWLevelHead implements ModInitializer {
         private static BedwarsGamePlayer from(NetworkPlayerInfo info) {
             String name = info.getGameProfile().getName();
             ScorePlayerTeam team = info.getPlayerTeam();
-            EnumChatFormatting color = team == null ? null : team.getChatFormat();
-            if (color == null || !color.isColor()) {
-                color = firstColor(info.getDisplayName() == null ? "" : info.getDisplayName().getFormattedText());
+            String formattedName = info.getDisplayName() == null
+                    ? ScorePlayerTeam.formatPlayerName(team, name)
+                    : info.getDisplayName().getFormattedText();
+            EnumChatFormatting color = colorAtPlayerName(formattedName, name);
+            if (!isBedwarsTeamColor(color)) {
+                color = team == null ? null : team.getChatFormat();
             }
 
             String teamName = colorTeamName(color);
             String teamKey = teamName.toLowerCase(Locale.ROOT);
-            if ("unknown".equals(teamKey) && team != null && team.getRegisteredName() != null) {
-                teamKey = team.getRegisteredName().toLowerCase(Locale.ROOT);
-                teamName = readableTeamName(team.getRegisteredName());
-            }
             return new BedwarsGamePlayer(name, teamKey, teamName, color == null ? EnumChatFormatting.WHITE : color);
         }
 
         private static BedwarsGamePlayer from(String name, String formattedName) {
-            EnumChatFormatting color = firstColor(formattedName);
+            EnumChatFormatting color = colorAtPlayerName(formattedName, name);
             String teamName = colorTeamName(color);
             return new BedwarsGamePlayer(name, teamName.toLowerCase(Locale.ROOT), teamName, color == null ? EnumChatFormatting.WHITE : color);
         }
@@ -1371,7 +1503,7 @@ public class ATWLevelHead implements ModInitializer {
             if (replacement == null) {
                 return existing;
             }
-            if (existing.isUnknownTeam() && !replacement.isUnknownTeam()) {
+            if (!replacement.isUnknownTeam()) {
                 return replacement;
             }
             return existing;
@@ -1381,20 +1513,33 @@ public class ATWLevelHead implements ModInitializer {
             return teamKey == null || "unknown".equals(teamKey);
         }
 
-        private static EnumChatFormatting firstColor(String formattedText) {
-            if (formattedText == null) {
+        private static EnumChatFormatting colorAtPlayerName(String formattedText, String playerName) {
+            if (formattedText == null || playerName == null || playerName.isEmpty()) {
                 return null;
             }
-            for (int index = 0; index < formattedText.length() - 1; index++) {
-                if (formattedText.charAt(index) != '\u00a7') {
-                    continue;
-                }
-                EnumChatFormatting formatting = colorByCode(formattedText.charAt(index + 1));
-                if (formatting != null && formatting.isColor()) {
-                    return formatting;
+
+            StringBuilder visible = new StringBuilder();
+            List<EnumChatFormatting> colors = new ArrayList<>();
+            EnumChatFormatting activeColor = null;
+            for (int index = 0; index < formattedText.length(); index++) {
+                char current = formattedText.charAt(index);
+                if (current == '\u00a7' && index + 1 < formattedText.length()) {
+                    char code = formattedText.charAt(index + 1);
+                    EnumChatFormatting formatting = colorByCode(code);
+                    if (formatting != null && formatting.isColor()) {
+                        activeColor = formatting;
+                    } else if (Character.toLowerCase(code) == 'r') {
+                        activeColor = null;
+                    }
+                    index++;
+                } else {
+                    visible.append(current);
+                    colors.add(activeColor);
                 }
             }
-            return null;
+
+            int nameIndex = visible.toString().toLowerCase(Locale.ROOT).lastIndexOf(playerName.toLowerCase(Locale.ROOT));
+            return nameIndex >= 0 && nameIndex < colors.size() ? colors.get(nameIndex) : null;
         }
 
         private static EnumChatFormatting colorByCode(char code) {
@@ -1457,15 +1602,8 @@ public class ATWLevelHead implements ModInitializer {
             return "Unknown";
         }
 
-        private static String readableTeamName(String value) {
-            if (value == null || value.trim().isEmpty()) {
-                return "Unknown";
-            }
-            String clean = value.replaceAll("^[0-9_\\-]+", "").replace('_', ' ').replace('-', ' ').trim();
-            if (clean.isEmpty()) {
-                return value;
-            }
-            return clean.substring(0, 1).toUpperCase(Locale.ROOT) + clean.substring(1);
+        private static boolean isBedwarsTeamColor(EnumChatFormatting color) {
+            return !"Unknown".equals(colorTeamName(color));
         }
     }
 

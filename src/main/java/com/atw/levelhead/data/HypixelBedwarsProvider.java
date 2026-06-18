@@ -6,25 +6,22 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.util.EnumChatFormatting;
 
-import java.io.InputStream;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class HypixelBedwarsProvider implements LevelheadProvider {
     private static final String API_KEY_ENV = "ATW_LEVELHEAD_HYPIXEL_API_KEY";
     private static final String API_KEY_PROPERTY = "atw.levelhead.hypixelApiKey";
-    private static final String LOCAL_API_KEY_RESOURCE = "/atw-levelhead-local.properties";
     private static final long THROTTLE_RETRY_DELAY_MILLIS = TimeUnit.MINUTES.toMillis(5);
     private static final DecimalFormat RATIO_FORMAT = new DecimalFormat("0.00");
 
-    private final HttpJsonClient http = new HttpJsonClient("ATWLevelHead/0.2.0");
+    private final HttpJsonClient http = new HttpJsonClient("ATWLevelHead/0.2.1");
     private final JsonParser parser = new JsonParser();
     private final LevelHeadConfig config;
     private volatile String apiKey;
@@ -414,23 +411,7 @@ public class HypixelBedwarsProvider implements LevelheadProvider {
             return config.getHypixelApiKey().trim();
         }
 
-        return loadBundledApiKey();
-    }
-
-    private static String loadBundledApiKey() {
-        try (InputStream inputStream = HypixelBedwarsProvider.class.getResourceAsStream(LOCAL_API_KEY_RESOURCE)) {
-            if (inputStream == null) {
-                return "";
-            }
-
-            Properties properties = new Properties();
-            properties.load(inputStream);
-            String value = properties.getProperty("hypixelApiKey", "");
-            return value == null ? "" : value.trim();
-        } catch (Exception exception) {
-            ATWLevelHead.log("Failed to load bundled Hypixel API key: " + exception.getMessage());
-            return "";
-        }
+        return "";
     }
 
     private static UUID parseUuid(String uuid) {
