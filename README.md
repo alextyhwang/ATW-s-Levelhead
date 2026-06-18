@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/readme-header.png" alt="ATW LevelHead" width="500">
+</p>
+
 # ATW's LevelHead
 
 ATW's LevelHead is a Weave mod for Lunar Client Minecraft 1.8.9. It adds
