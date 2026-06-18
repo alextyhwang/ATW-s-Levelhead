@@ -2,8 +2,6 @@
   <img src="docs/images/readme-header.png" alt="ATW LevelHead" width="500">
 </p>
 
-# ATW's LevelHead
-
 ATW's LevelHead is a Weave mod for Lunar Client Minecraft 1.8.9. It adds
 clean Hypixel LevelHead tags, BedWars tab stats, lobby chat lookups, and a
 BedWars threat overview without wasting Hypixel API requests in pregame
